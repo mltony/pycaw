@@ -3,8 +3,9 @@ import warnings
 import comtypes
 import psutil
 from _ctypes import COMError
+from ctypes import c_float, POINTER
 
-from pycaw.api.audioclient import ISimpleAudioVolume
+from pycaw.api.audioclient import ISimpleAudioVolume, IChannelAudioVolume
 from pycaw.api.audiopolicy import IAudioSessionControl2, IAudioSessionManager2
 from pycaw.api.endpointvolume import IAudioEndpointVolume
 from pycaw.api.mmdeviceapi import IMMDeviceEnumerator, IMMEndpoint
@@ -52,6 +53,28 @@ class AudioDevice:
         return self._volume
 
 
+class ChannelAudioVolume:
+    """
+    Provides a more Pythonic interface for IChannelAudioVolume.
+    """
+    def __init__(self, audioSession):
+        self._ctl = audioSession._ctl.QueryInterface(IChannelAudioVolume)
+    
+    def getChannelCount(self):
+        return self._ctl.GetChannelCount()
+    
+    def getChannelVolume(self, index):
+        return self._ctl.GetChannelVolume(index)
+        
+    def getAllVolumes(self):
+        count = self.getChannelCount()
+        arrayOfFloats = (c_float * count)(*[0.0] * count)
+        pointerToFloats = POINTER(c_float)(arrayOfFloats)
+        self._ctl.GetAllVolumes(count, pointerToFloats)
+        return [arrayOfFloats[i] for i in range(count)]
+
+
+
 class AudioSession:
     """
     https://stackoverflow.com/a/20982715/185510
@@ -61,6 +84,7 @@ class AudioSession:
         self._ctl = audio_session_control2
         self._process = None
         self._volume = None
+        self._channelVolume = None
         self._callback = None
 
     def __str__(self):
@@ -144,6 +168,13 @@ class AudioSession:
         if self._volume is None:
             self._volume = self._ctl.QueryInterface(ISimpleAudioVolume)
         return self._volume
+
+    @property
+    def channelAudioVolume(self):
+        if self._channelVolume is None:
+            self._channelVolume = ChannelAudioVolume(self)
+        return self._channelVolume
+
 
     def register_notification(self, callback):
         if self._callback is None:
